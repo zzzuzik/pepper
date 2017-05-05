@@ -389,9 +389,7 @@ class PepperCli(object):
             jid_ret = api.lookup_jid(jid)
             responded = set(jid_ret['return'][0].keys()) ^ set(ret_nodes)
             for node in responded:
-                yield None, "{{{}: {}}}".format(
-                    node,
-                    jid_ret['return'][0][node])
+                yield None, {node: jid_ret['return'][0][node]}
             ret_nodes = list(jid_ret['return'][0].keys())
 
             if set(ret_nodes) == set(nodes):
@@ -401,8 +399,7 @@ class PepperCli(object):
                 time.sleep(self.seconds_to_wait)
 
         exit_code = exit_code if self.options.fail_if_minions_dont_respond else 0
-        yield exit_code, "{{Failed: {}}}".format(
-            list(set(ret_nodes) ^ set(nodes)))
+        yield exit_code, {'Failed': list(set(ret_nodes) ^ set(nodes))}
 
     def run(self):
         '''
