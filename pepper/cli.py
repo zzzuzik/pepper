@@ -370,7 +370,11 @@ class PepperCli(object):
         '''
         load[0]['client'] = 'local_async'
         async_ret = api.low(load)
-        jid = async_ret['return'][0]['jid']
+        jid = None
+        if 'jid' in async_ret['return'][0]:
+            jid = async_ret['return'][0]['jid']
+        else:
+            yield 404, {'Failed': async_ret['return']}
         nodes = async_ret['return'][0]['minions']
         ret_nodes = []
         exit_code = 1
