@@ -369,10 +369,11 @@ class PepperCli(object):
         cache for returns for the job.
         '''
         start_time = time.time()
+        try_count = 0
         while True:
             total_time = time.time() - start_time
             if total_time > 300:
-                yield 404, {'Failed': 'timeout to get JID'}
+                yield 404, {'Failed': 'timeout to get JID. total tries: {0}'.format(try_count)}
 
             load[0]['client'] = 'local_async'
             async_ret = api.low(load)
@@ -380,6 +381,9 @@ class PepperCli(object):
             if 'jid' in async_ret['return'][0]:
                 jid = async_ret['return'][0]['jid']
                 break
+            else:
+                try_count += 1
+                time.sleep(30)
 
         nodes = async_ret['return'][0]['minions']
         ret_nodes = []
