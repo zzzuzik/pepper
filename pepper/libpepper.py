@@ -4,10 +4,8 @@ A Python library for working with Salt's REST API
 (Specifically the rest_cherrypy netapi module.)
 
 '''
-import functools
 import json
 import logging
-import os
 import ssl
 try:
     ssl._create_default_https_context = ssl._create_stdlib_context
@@ -59,7 +57,10 @@ class Pepper(object):
               u'ms-4': True}]}
 
     '''
-    def __init__(self, api_url='https://localhost:8000', debug_http=False, ignore_ssl_errors=False):
+    def __init__(self,
+            api_url='https://localhost:8000',
+            debug_http=False,
+            ignore_ssl_errors=False):
         '''
         Initialize the class with the URL of the API
 
@@ -82,6 +83,59 @@ class Pepper(object):
         self.debug_http = int(debug_http)
         self._ssl_verify = not ignore_ssl_errors
         self.auth = {}
+    
+    def req_stream(self, path):
+        '''
+        A thin wrapper to get a response from saltstack api.
+        The body of the response will not be downloaded immediately.
+        Make sure to close the connection after use.
+        api = Pepper('http://ipaddress/api/')
+        print(api.login('salt','salt','pam'))
+        response = api.req_stream('/events')
+
+        :param path: The path to the salt api resource
+
+        :return: :class:`Response <Response>` object
+
+        :rtype: requests.Response
+        '''
+        import requests
+
+        headers = {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+        }
+        if self.auth and 'token' in self.auth and self.auth['token']:
+            headers.setdefault('X-Auth-Token', self.auth['token'])
+        else:
+            raise PepperException('Authentication required')
+            return
+        # Optionally toggle SSL verification
+        #self._ssl_verify = self.ignore_ssl_errors
+        params = {'url': self._construct_url(path),
+                  'headers': headers,
+                  'verify': self._ssl_verify == True,
+                  'stream': True
+                  }
+        try:
+            resp = requests.get(**params)
+
+            if resp.status_code == 401:
+                raise PepperException(str(resp.status_code) + ':Authentication denied')
+                return
+
+            if resp.status_code == 500:
+                raise PepperException(str(resp.status_code) + ':Server error.')
+                return
+
+            if resp.status_code == 404:
+                raise PepperException(str(resp.status_code) +' :This request returns nothing.')
+                return
+        except PepperException as e:
+            print(e)
+            return
+        return resp      
 
     def req_get(self, path):
         '''
@@ -90,9 +144,8 @@ class Pepper(object):
         print(api.login('salt','salt','pam'))
         print(api.req_get('/keys'))
         '''
-
         import requests
-        
+
         headers = {
             'Accept': 'application/json',
             'Content-Type': 'application/json',
@@ -110,7 +163,7 @@ class Pepper(object):
                   'verify': self._ssl_verify == True,
                   }
         try:
-            resp = requests.get(**params)           
+            resp = requests.get(**params)
 
             if resp.status_code == 401:
                 raise PepperException(str(resp.status_code) + ':Authentication denied')
@@ -127,7 +180,7 @@ class Pepper(object):
             print(e)
             return
         return resp.json()
-        
+
     def req(self, path, data=None):
         '''
         A thin wrapper around urllib2 to send requests and return the response
@@ -138,7 +191,8 @@ class Pepper(object):
         :rtype: dictionary
 
         '''
-        if (hasattr(data, 'get') and data.get('eauth') == 'kerberos') or self.auth.get('eauth') == 'kerberos':
+        if ((hasattr(data, 'get') and data.get('eauth') == 'kerberos')
+                or self.auth.get('eauth') == 'kerberos'):
             return self.req_requests(path, data)
 
         headers = {
@@ -274,7 +328,7 @@ class Pepper(object):
         if ret:
             low['ret'] = ret
 
-        return self.low([low], path='/')
+        return self.low([low])
 
     def local_async(self, tgt, fun, arg=None, kwarg=None, expr_form='glob',
                     timeout=None, ret=None):
@@ -304,7 +358,7 @@ class Pepper(object):
         if ret:
             low['ret'] = ret
 
-        return self.low([low], path='/')
+        return self.low([low])
 
     def local_batch(self, tgt, fun, arg=None, kwarg=None, expr_form='glob',
                     batch='50%', ret=None):
@@ -334,7 +388,7 @@ class Pepper(object):
         if ret:
             low['ret'] = ret
 
-        return self.low([low], path='/')
+        return self.low([low])
 
     def lookup_jid(self, jid):
         '''
@@ -345,7 +399,7 @@ class Pepper(object):
 
         return self.runner('jobs.lookup_jid', jid='{0}'.format(jid))
 
-    def runner(self, fun, **kwargs):
+    def runner(self, fun, arg=None, **kwargs):
         '''
         Run a single command using the ``runner`` client
 
@@ -356,22 +410,52 @@ class Pepper(object):
             'client': 'runner',
             'fun': fun,
         }
+        if arg:
+            low['arg'] = arg
 
         low.update(kwargs)
 
-        return self.low([low], path='/')
+        return self.low([low])
 
-    def login(self, username, password, eauth):
+    def wheel(self, fun, arg=None, kwarg=None, **kwargs):
+        '''
+        Run a single command using the ``wheel`` client
+
+        Usage::
+          wheel('key.accept', match='myminion')
+        '''
+        low = {
+            'client': 'wheel',
+            'fun': fun,
+        }
+
+        if arg:
+            low['arg'] = arg
+        if kwarg:
+            low['kwarg'] = kwarg
+
+        low.update(kwargs)
+
+        return self.low([low])
+
+    def _send_auth(self, path, **kwargs):
+        return self.req(path, kwargs)
+
+    def login(self, **kwargs):
         '''
         Authenticate with salt-api and return the user permissions and
         authentication token or an empty dict
 
         '''
-        self.auth = self.req('/login', {
-            'username': username,
-            'password': password,
-            'eauth': eauth}).get('return', [{}])[0]
+        self.auth = self._send_auth('/login', **kwargs).get('return', [{}])[0]
+        return self.auth
 
+    def token(self, **kwargs):
+        '''
+        Get an eauth token from Salt for use with the /run URL
+
+        '''
+        self.auth = self._send_auth('/token', **kwargs)[0]
         return self.auth
 
     def _construct_url(self, path):

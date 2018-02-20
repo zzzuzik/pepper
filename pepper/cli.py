@@ -101,6 +101,10 @@ class PepperCli(object):
             Specifying this argument will cause positional arguments to be
             ignored.'''))
 
+        optgroup.add_option('--json-file', dest='json_file',
+            help=textwrap.dedent('''\
+            Specify file containing the JSON to be used by pepper'''))
+
         # optgroup.add_option('--out', '--output', dest='output',
         #        help="Specify the output format for the command output")
 
@@ -192,6 +196,12 @@ class PepperCli(object):
             dest='password', help=textwrap.dedent("""\
                     Optional, but will be prompted unless --non-interactive"""))
 
+        optgroup.add_option('--token-expire',
+            dest='token_expire', help=textwrap.dedent("""\
+                    Set eauth token expiry in seconds. Must be allowed per
+                    user. See the `token_expire_user_override` Master setting
+                    for more info."""))
+
         optgroup.add_option('--non-interactive',
             action='store_false', dest='interactive', help=textwrap.dedent("""\
                     Optional, fail rather than waiting for input"""), default=True)
@@ -202,6 +212,20 @@ class PepperCli(object):
                 Generate and save an authentication token for re-use. The token is
                 generated and made available for the period defined in the Salt
                 Master."""))
+
+        optgroup.add_option('-r', '--run-uri', default=False,
+            dest='userun', action='store_true',
+            help=textwrap.dedent("""\
+                Use an eauth token from /token and send commands through the
+                /run URL instead of the traditional session token
+                approach."""))
+
+        optgroup.add_option('-x', dest='cache',
+            default=os.environ.get('PEPPERCACHE',
+                os.path.join(os.path.expanduser('~'), '.peppercache')),
+            help=textwrap.dedent('''\
+                Cache file location. Default is a file path in the
+                "PEPPERCACHE" environment variable or ~/.peppercache.'''))
 
         return optgroup
 
@@ -242,6 +266,8 @@ class PepperCli(object):
 
         if self.options.eauth:
             results['SALTAPI_EAUTH'] = self.options.eauth
+        if self.options.token_expire:
+            results['SALTAPI_TOKEN_EXPIRE'] = self.options.token_expire
         if self.options.username is None and results['SALTAPI_USER'] is None:
             if self.options.interactive:
                 results['SALTAPI_USER'] = input('Username: ')
@@ -297,11 +323,17 @@ class PepperCli(object):
         login_details = self.get_login_details()
 
         # Auth values placeholder; grab interactively at CLI or from config
-        user = login_details['SALTAPI_USER']
-        passwd = login_details['SALTAPI_PASS']
+        username = login_details['SALTAPI_USER']
+        password = login_details['SALTAPI_PASS']
         eauth = login_details['SALTAPI_EAUTH']
 
-        return user, passwd, eauth
+        ret = dict(username=username, password=password, eauth=eauth)
+
+        token_expire = login_details.get('SALTAPI_TOKEN_EXPIRE', None)
+        if token_expire:
+            ret['token_expire'] = int(token_expire)
+
+        return ret
 
     def parse_cmd(self):
         '''
@@ -313,6 +345,22 @@ class PepperCli(object):
                 return json.loads(self.options.json_input)
             except ValueError:
                 logger.error("Invalid JSON given.")
+                raise SystemExit(1)
+
+        if self.options.json_file:
+            try:
+                with open(self.options.json_file, 'r') as json_content:
+                    try:
+                        return json.load(json_content)
+                    except ValueError:
+                        logger.error("Invalid JSON given.")
+                        raise SystemExit(1)
+            except Exception as e:
+                logger.error(
+                    'Cannot open file: {0}, {1}'.format(
+                        self.options.json_file, repr(e)
+                    )
+                )
                 raise SystemExit(1)
 
         args = list(self.args)
@@ -369,7 +417,7 @@ class PepperCli(object):
         cache for returns for the job.
         '''
         load[0]['client'] = 'local_async'
-        async_ret = api.low(load)
+        async_ret = self.low(api, load)
         jid = async_ret['return'][0]['jid']
         nodes = async_ret['return'][0]['minions']
         ret_nodes = []
@@ -386,7 +434,14 @@ class PepperCli(object):
                 exit_code = 1
                 break
 
-            jid_ret = api.lookup_jid(jid)
+            jid_ret = self.low(api, [{
+                'client': 'runner',
+                'fun': 'jobs.lookup_jid',
+                'kwarg': {
+                    'jid': jid,
+                },
+            }])
+
             responded = set(jid_ret['return'][0].keys()) ^ set(ret_nodes)
             for node in responded:
                 yield None, "{{{}: {}}}".format(
@@ -404,6 +459,48 @@ class PepperCli(object):
         yield exit_code, "{{Failed: {}}}".format(
             list(set(ret_nodes) ^ set(nodes)))
 
+    def login(self, api):
+        login = api.token if self.options.userun else api.login
+
+        if self.options.mktoken:
+            token_file = self.options.cache
+            try:
+                with open(token_file, 'rt') as f:
+                    auth = json.load(f)
+                if auth['expire'] < time.time()+30:
+                    logger.error('Login token expired')
+                    raise Exception('Login token expired')
+            except Exception as e:
+                if e.args[0] is not 2:
+                    logger.error('Unable to load login token from {0} {1}'
+                        .format(token_file, str(e)))
+                auth = login(**self.parse_login())
+                try:
+                    oldumask = os.umask(0)
+                    fdsc = os.open(token_file, os.O_WRONLY | os.O_CREAT, 0o600)
+                    with os.fdopen(fdsc, 'wt') as f:
+                        json.dump(auth, f)
+                except Exception as e:
+                    logger.error('Unable to save token to {0} {1}'
+                        .format(token_file, str(e)))
+                finally:
+                    os.umask(oldumask)
+        else:
+            auth = login(**self.parse_login())
+
+        api.auth = auth
+        self.auth = auth
+        return auth
+
+    def low(self, api, load):
+        path = '/run' if self.options.userun else '/'
+
+        if self.options.userun:
+            for i in load:
+                i['token'] = self.auth['token']
+
+        return api.low(load, path=path)
+
     def run(self):
         '''
         Parse all arguments and call salt-api
@@ -420,34 +517,13 @@ class PepperCli(object):
             self.parse_url(),
             debug_http=self.options.debug_http,
             ignore_ssl_errors=self.options.ignore_ssl_certificate_errors)
-        if self.options.mktoken:
-            token_file = os.path.join(os.path.expanduser('~'), '.peppercache')
-            try:
-                with open(token_file, 'rt') as f:
-                    api.auth = json.load(f)
-                if api.auth['expire'] < time.time()+30:
-                    logger.error('Login token expired')
-                    raise Exception('Login token expired')
-            except Exception as e:
-                if e.args[0] is not 2:
-                    logger.error('Unable to load login token from ~/.peppercache '+str(e))
-                auth = api.login(*self.parse_login())
-                try:
-                    oldumask = os.umask(0)
-                    fdsc = os.open(token_file, os.O_WRONLY | os.O_CREAT, 0o600)
-                    with os.fdopen(fdsc, 'wt') as f:
-                        json.dump(auth, f)
-                except Exception as e:
-                    logger.error('Unable to save token to ~/.pepperache '+str(e))
-                finally:
-                    os.umask(oldumask)
-        else:
-            auth = api.login(*self.parse_login())
+
+        self.login(api)
 
         if self.options.fail_if_minions_dont_respond:
             for exit_code, ret in self.poll_for_returns(api, load):
                 yield exit_code, json.dumps(ret, sort_keys=True, indent=4)
         else:
-            ret = api.low(load)
+            ret = self.low(api, load)
             exit_code = 0
             yield exit_code, json.dumps(ret, sort_keys=True, indent=4)
