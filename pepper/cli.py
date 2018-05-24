@@ -372,7 +372,7 @@ class PepperCli(object):
         try_count = 0
         while True:
             total_time = time.time() - start_time
-            if total_time > 300:
+            if total_time > 30:
                 yield 404, {'Failed': 'timeout to get JID. total tries: {0}'.format(try_count)}
 
             load[0]['client'] = 'local_async'
@@ -383,7 +383,7 @@ class PepperCli(object):
                 break
             else:
                 try_count += 1
-                time.sleep(30)
+                time.sleep(10)
 
         nodes = async_ret['return'][0]['minions']
         ret_nodes = []
