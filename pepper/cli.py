@@ -372,8 +372,9 @@ class PepperCli(object):
         try_count = 0
         while True:
             total_time = time.time() - start_time
-            if total_time > 30:
+            if total_time > 60:
                 yield 404, {'Failed': 'timeout to get JID. total tries: {0}'.format(try_count)}
+                return  # actual exit
 
             load[0]['client'] = 'local_async'
             async_ret = api.low(load)
