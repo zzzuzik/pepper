@@ -42,6 +42,7 @@ class PepperCli(object):
         self.parser.option_groups.extend([self.add_globalopts(),
             self.add_tgtopts(),
             self.add_authopts()])
+        self.parse()
 
     def get_parser(self):
         return optparse.OptionParser(
@@ -419,8 +420,6 @@ class PepperCli(object):
         '''
         Parse all arguments and call salt-api
         '''
-        self.parse()
-
         # move logger instantiation to method?
         logger.addHandler(logging.StreamHandler())
         logger.setLevel(max(logging.ERROR - (self.options.verbose * 10), 1))
