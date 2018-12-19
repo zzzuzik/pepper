@@ -7,26 +7,25 @@ A Python library for working with Salt's REST API
 import json
 import logging
 import ssl
+
+from pepper.exceptions import PepperException
+
 try:
     ssl._create_default_https_context = ssl._create_stdlib_context
-except:
+except Exception:
     pass
 
 try:
-    from urllib.request import HTTPHandler, Request, urlopen, \
+    from urllib.request import HTTPHandler, HTTPSHandler, Request, urlopen, \
         install_opener, build_opener
     from urllib.error import HTTPError, URLError
     import urllib.parse as urlparse
 except ImportError:
-    from urllib2 import HTTPHandler, Request, urlopen, install_opener, build_opener, \
+    from urllib2 import HTTPHandler, HTTPSHandler, Request, urlopen, install_opener, build_opener, \
         HTTPError, URLError
     import urlparse
 
-logger = logging.getLogger('pepper')
-
-
-class PepperException(Exception):
-    pass
+logger = logging.getLogger(__name__)
 
 
 class Pepper(object):
@@ -57,10 +56,7 @@ class Pepper(object):
               u'ms-4': True}]}
 
     '''
-    def __init__(self,
-            api_url='https://localhost:8000',
-            debug_http=False,
-            ignore_ssl_errors=False):
+    def __init__(self, api_url='https://localhost:8000', debug_http=False, ignore_ssl_errors=False):
         '''
         Initialize the class with the URL of the API
 
@@ -83,7 +79,7 @@ class Pepper(object):
         self.debug_http = int(debug_http)
         self._ssl_verify = not ignore_ssl_errors
         self.auth = {}
-    
+
     def req_stream(self, path):
         '''
         A thin wrapper to get a response from saltstack api.
@@ -111,11 +107,9 @@ class Pepper(object):
         else:
             raise PepperException('Authentication required')
             return
-        # Optionally toggle SSL verification
-        #self._ssl_verify = self.ignore_ssl_errors
         params = {'url': self._construct_url(path),
                   'headers': headers,
-                  'verify': self._ssl_verify == True,
+                  'verify': self._ssl_verify is True,
                   'stream': True
                   }
         try:
@@ -130,12 +124,12 @@ class Pepper(object):
                 return
 
             if resp.status_code == 404:
-                raise PepperException(str(resp.status_code) +' :This request returns nothing.')
+                raise PepperException(str(resp.status_code) + ' :This request returns nothing.')
                 return
         except PepperException as e:
             print(e)
             return
-        return resp      
+        return resp
 
     def req_get(self, path):
         '''
@@ -156,11 +150,9 @@ class Pepper(object):
         else:
             raise PepperException('Authentication required')
             return
-        # Optionally toggle SSL verification
-        #self._ssl_verify = self.ignore_ssl_errors
         params = {'url': self._construct_url(path),
                   'headers': headers,
-                  'verify': self._ssl_verify == True,
+                  'verify': self._ssl_verify is True,
                   }
         try:
             resp = requests.get(**params)
@@ -174,7 +166,7 @@ class Pepper(object):
                 return
 
             if resp.status_code == 404:
-                raise PepperException(str(resp.status_code) +' :This request returns nothing.')
+                raise PepperException(str(resp.status_code) + ' :This request returns nothing.')
                 return
         except PepperException as e:
             print(e)
@@ -201,8 +193,12 @@ class Pepper(object):
             'X-Requested-With': 'XMLHttpRequest',
         }
 
-        handler = HTTPHandler(debuglevel=self.debug_http)
-        opener = build_opener(handler)
+        opener = build_opener()
+        for handler in opener.handlers:
+            if isinstance(handler, HTTPHandler):
+                handler.set_http_debuglevel(self.debug_http)
+            if isinstance(handler, HTTPSHandler):
+                handler.set_http_debuglevel(self.debug_http)
         install_opener(opener)
 
         # Build POST data
@@ -228,12 +224,13 @@ class Pepper(object):
         try:
             if not (self._ssl_verify):
                 con = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
-                #con.check_hostname = False
-                #con.verify_mode = ssl.CERT_NONE
                 f = urlopen(req, context=con)
             else:
                 f = urlopen(req)
-            ret = json.loads(f.read().decode('utf-8'))
+            content = f.read().decode('utf-8')
+            if (self.debug_http):
+                logger.debug('Response: %s', content)
+            ret = json.loads(content)
         except (HTTPError, URLError) as exc:
             logger.debug('Error with request', exc_info=True)
             status = getattr(exc, 'code', None)
