@@ -20,7 +20,6 @@ from pepper.exceptions import (
     PepperException,
 )
 
-
 try:
     # Python 3
     from configparser import ConfigParser, RawConfigParser
@@ -569,7 +568,8 @@ class PepperCli(object):
                 },
             }])
 
-            jid_data = jid_ret['return'][0]['data'] if 'data' in jid_ret['return'][0] else {}
+            jid_data = jid_ret['return'][0]['data'] if jid_ret['return'][0].keys() \
+                and 'data' in jid_ret['return'][0] else {}
             responded = set(jid_data.keys()) ^ set(ret_nodes)
             for node in responded:
                 yield None, {node: jid_data[node]}
@@ -592,7 +592,7 @@ class PepperCli(object):
             try:
                 with open(token_file, 'rt') as f:
                     auth = json.load(f)
-                if auth['expire'] < time.time()+30:
+                if auth['expire'] < time.time() + 30:
                     logger.error('Login token expired')
                     raise Exception('Login token expired')
             except Exception as e:
