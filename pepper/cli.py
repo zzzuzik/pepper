@@ -569,7 +569,7 @@ class PepperCli(object):
             }])
 
             jid_data = jid_ret['return'][0]['data'] if jid_ret['return'][0].keys() \
-                and 'data' in jid_ret['return'][0] else {}
+                and 'data' in jid_ret['return'][0] else jid_ret['return'][0]
             responded = set(jid_data.keys()) ^ set(ret_nodes)
             for node in responded:
                 yield None, {node: jid_data[node]}
