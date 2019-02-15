@@ -568,6 +568,11 @@ class PepperCli(object):
                 },
             }])
 
+            if isinstance(jid_ret['return'][0], basestring):
+                # handling wrong output
+                time.sleep(self.seconds_to_wait)
+                continue
+
             jid_data = jid_ret['return'][0]['data'] if jid_ret['return'][0].keys() \
                 and 'data' in jid_ret['return'][0] else jid_ret['return'][0]
             responded = set(jid_data.keys()) ^ set(ret_nodes)
