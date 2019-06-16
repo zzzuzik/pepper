@@ -547,6 +547,7 @@ class PepperCli(object):
         async_ret = self.low(api, load)
         if 'jid' not in async_ret['return'][0]:
             yield 503, {'Failed': async_ret['return']}
+            return
         nodes = async_ret['return'][0]['minions']
         ret_nodes = []
         exit_code = 1
