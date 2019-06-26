@@ -612,21 +612,21 @@ class PepperCli(object):
                 with open(token_file, 'rt') as f:
                     auth = json.load(f)
                 if auth['expire'] < time.time()+30:
-                    logger.error('Login token expired')
+                    logger.debug('Login token expired')
                     raise Exception('Login token expired')
             except Exception as e:
                 if e.args[0] != 2:
-                    logger.error('Unable to load login token from {0} {1}'.format(token_file, str(e)))
+                    logger.debug('Unable to load login token from {0} {1}'.format(token_file, str(e)))
                     if os.path.isfile(token_file):
                         os.remove(token_file)
                 auth = login(**self.parse_login())
                 try:
                     oldumask = os.umask(0)
                     fdsc = os.open(token_file, os.O_WRONLY | os.O_CREAT, 0o600)
-                    with os.fdopen(fdsc, 'w+') as f:
+                    with os.fdopen(fdsc, 'wt') as f:
                         json.dump(auth, f)
                 except Exception as e:
-                    logger.error('Unable to save token to {0} {1}'.format(token_file, str(e)))
+                    logger.debug('Unable to save token to {0} {1}'.format(token_file, str(e)))
                 finally:
                     os.umask(oldumask)
         else:
