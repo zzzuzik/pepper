@@ -555,11 +555,18 @@ class PepperCli(object):
         Run a command with the local_async client and periodically poll the job
         cache for returns for the job.
         """
+        start_time = time.time()
         load[0]['client'] = 'local_async'
         async_ret = self.low(api, load)
-        if 'jid' not in async_ret['return'][0]:
-            yield 503, {'Failed': 'no JID, raw ret: {}'.format(async_ret['return'])}
-            return
+
+        # keep trying till JID is returned
+        while 'jid' not in async_ret['return'][0]:
+            total_time = time.time() - start_time
+            if total_time > 300:    # give 5 for getting JID from API
+                yield 503, {'Failed': 'no JID withing 5 mins, raw ret: {}'.format(async_ret['return'])}
+                return
+            sleep(5)
+            async_ret = self.low(api, load)
         else:
             jid = async_ret['return'][0]['jid']
         nodes = async_ret['return'][0]['minions']
