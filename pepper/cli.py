@@ -565,7 +565,7 @@ class PepperCli(object):
             if total_time > 300:    # give 5 for getting JID from API
                 yield 503, {'Failed': 'no JID withing 5 mins, raw ret: {}'.format(async_ret['return'])}
                 return
-            sleep(5)
+            time.sleep(5)
             async_ret = self.low(api, load)
         else:
             jid = async_ret['return'][0]['jid']
