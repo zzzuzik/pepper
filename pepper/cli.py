@@ -562,10 +562,11 @@ class PepperCli(object):
         # keep trying till JID is returned
         while 'jid' not in async_ret['return'][0]:
             total_time = time.time() - start_time
-            if total_time > 300:    # give 5 for getting JID from API
-                yield 503, {'Failed': 'no JID withing 5 mins, raw ret: {}'.format(async_ret['return'])}
+            if total_time > 120:    # give 5 for getting JID from API
+                yield 503, {'Failed': 'no JID withing 2 mins of retries, raw ret: {}'.format(async_ret['return'])}
                 return
-            time.sleep(5)
+            time.sleep(15)
+            self.login(api)     # experimenting with random failure
             async_ret = self.low(api, load)
         else:
             jid = async_ret['return'][0]['jid']
